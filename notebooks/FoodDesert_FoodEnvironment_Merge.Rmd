@@ -1,0 +1,260 @@
+---
+title: "Comparing Food Deserts and Food Environment"
+output: html_notebook
+---
+
+
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+access_atlas <- read_csv("FoodAccessResearchAtlasData2019.csv")
+
+stores <- read.csv("FoodEnvironmentAtlas-Stores.csv")
+restaurants <- read.csv("FoodEnvironmentAtlas-Restaurants.csv")
+assistance <- read.csv("FoodEnvironmentAtlas-Assistance.csv")
+```
+```{r}
+access_atlas[,-c(1,2,3)] <- sapply(access_atlas[,-c(1,2,3)], as.numeric)
+access_atlas <- access_atlas %>% na.omit()
+```
+
+
+```{r}
+state_dict <- data.frame(state.name, state.abb)
+colnames(state_dict) <- list("Long", "State")
+```
+
+
+```{r}
+access_atlas_short <- access_atlas %>%
+  subset(select = c("CensusTract","State", "County", "Urban", "LA1and10"))
+
+access_atlas_short_merged <- access_atlas_short %>%
+  unite("County", County:State, sep = ", ", remove = TRUE)
+
+access_atlas_short_ag <- aggregate(access_atlas_short_merged[,3:4], by = list(access_atlas_short_merged$County), mean)
+colnames(access_atlas_short_ag) <- list("County", "Urban", "LA1and10")
+```
+
+```{r}
+stores_short <- stores %>%
+  subset(select = c("State", "County", "GROCPTH16", "SUPERCPTH16", "CONVSPTH16", "SPECSPTH16", "SNAPSPTH17", "WICSPTH16"))
+stores_short <- inner_join(stores_short, state_dict)
+stores_short <- stores_short %>%
+  subset(select = c("Long", "County", "GROCPTH16", "SUPERCPTH16", "CONVSPTH16", "SPECSPTH16", "SNAPSPTH17", "WICSPTH16"))
+colnames(stores_short) = list("State", "County", "GROCPTH16", "SUPERCPTH16", "CONVSPTH16", "SPECSPTH16", "SNAPSPTH17", "WICSPTH16")
+stores_short_merged <- stores_short %>%
+  unite("County", County:State, sep = " County, ", remove = TRUE)
+
+restaurants_short <- restaurants %>%
+  subset(select = c("State", "County", "FFRPTH16", "FSRPTH16"))
+restaurants_short <- inner_join(restaurants_short, state_dict)
+restaurants_short <- restaurants_short %>%
+  subset(select = c("Long", "County", "FFRPTH16", "FSRPTH16"))
+colnames(restaurants_short) <- list("State", "County", "FFRPTH16", "FSRPTH16")
+restaurants_short_merged <- restaurants_short %>%
+  unite("County", County:State, sep = " County, ", remove = TRUE)
+```
+
+```{r}
+merged <- left_join(access_atlas_short_ag, stores_short_merged, by = "County")
+merged <- left_join(merged, restaurants_short_merged, by = "County")
+
+merged <- na.omit(merged)
+
+saveRDS(merged, "merged.RDS")
+```
+```{r}
+data <- as.matrix(merged %>%
+                    subset(select = -c(County)))
+heatmap(data)
+```
+
+```{r}
+thresh <- 0.5
+urban <- merged %>%
+  subset(Urban > thresh) %>%
+  subset(select = -c(Urban, County))
+  
+non_urban <- merged %>%
+  subset(Urban <= thresh)%>%
+  subset(select = -c(Urban, County))
+
+aa_length <- nrow(access_atlas)
+aa_short_length <- nrow(access_atlas_short)
+urban_length <- nrow(urban)
+non_urban_length <- nrow(non_urban)
+
+t <- 0.7
+
+access_atlas_train <- sample_n(access_atlas, aa_length*t)
+access_atlas_test <-sample_n(access_atlas, aa_length*(1-t))
+access_atlas_short_train <- sample_n(access_atlas_short, aa_short_length*t )
+access_atlas_short_test <- sample_n(access_atlas_short, aa_short_length*(1-t))
+urban_train <- sample_n(urban,  urban_length*t)
+urban_test <- sample_n(urban,  urban_length*(1-t))
+non_urban_train <- sample_n(non_urban, non_urban_length*t)
+non_urban_test <- sample_n(non_urban, non_urban_length*(1-t))
+```
+
+```{r}
+library(kernlab)
+#support vector machine for characteristics and food deserts
+x_test<- access_atlas_test %>%
+  subset(select = c("Pop2010",
+                    "OHU2010",
+                    "PCTGQTRS", 
+                    "PovertyRate",
+                    "MedianFamilyIncome",
+                    "TractLOWI",
+                    "TractKids",
+                    "TractSeniors",
+                    "TractWhite",
+                    "TractBlack",
+                    "TractAsian",
+                    "TractNHOPI",
+                    "TractAIAN",
+                    "TractOMultir",
+                    "TractHispanic",
+                    "TractHUNV",
+                    "TractSNAP"))
+x_train<- access_atlas_train %>%
+  subset(select = c("Pop2010",
+                    "OHU2010",
+                    "PCTGQTRS", 
+                    "PovertyRate",
+                    "MedianFamilyIncome",
+                    "TractLOWI",
+                    "TractKids",
+                    "TractSeniors",
+                    "TractWhite",
+                    "TractBlack",
+                    "TractAsian",
+                    "TractNHOPI",
+                    "TractAIAN",
+                    "TractOMultir",
+                    "TractHispanic",
+                    "TractHUNV",
+                    "TractSNAP"))
+
+x_train <- rbind(as.matrix(as.data.frame(scale(x_train))))
+x_test <- as.data.frame(scale(x_test))
+
+
+y_train <- as.matrix(access_atlas_train$LA1and10)
+y_test <- as.matrix(access_atlas_test$LA1and10)
+
+svp <- ksvm(x_train,y_train,type="C-svc")
+svp
+
+```
+
+```{r}
+svp_pred <- predict(svp, x_test)
+table(svp_pred, y_test)
+agreement <- svp_pred == y_test
+prop.table(table(agreement))
+
+
+library(caret)
+
+cm <- confusionMatrix(factor(svp_pred), factor(y_test), dnn = c("Prediction", "Reference"))
+
+plt <- as.data.frame(cm$table)
+plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+
+ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq)) +
+        scale_fill_gradient(low="white", high="#009194") +
+        labs(x = "Reference",y = "Prediction") +
+        scale_x_discrete(labels=c("Class_1","Class_2")) +
+        scale_y_discrete(labels=c("Class_2","Class_1"))
+```
+
+
+```{r}
+urban_lm <- lm(LA1and10 ~., urban_test)
+non_urban_lm <- lm(LA1and10 ~., non_urban_test)
+summary(urban_lm)
+summary(non_urban_lm)
+```
+
+```{r}
+library(randomForest)
+
+merged_factors <- merged %>%
+  mutate(LA1and10 = as.factor(if_else(LA1and10 >= 0.33, 1, 0)))
+
+train <- sample_n(merged_factors, 518) %>% subset(select = -c(County))
+test <- sample_n(merged_factors, 222) %>% subset(select = -c(County))
+
+x_test <- test %>% subset(select = -c(LA1and10))
+
+merged.rf <- randomForest(LA1and10~., data = train,
+                            ntree = 50,
+                            importance = TRUE,
+                            proximity = TRUE)
+print(merged.rf)
+plot(merged.rf)
+
+pred <- predict(merged.rf, x_test)
+
+table(pred, test$LA1and10)
+agreement <- pred == test$LA1and10
+prop.table(table(agreement))
+
+importance = importance(merged.rf)
+var_importance = data.frame(Variables = row.names(importance),
+                           Importance =round(importance[, 'MeanDecreaseAccuracy'],2))
+rank_importance=var_importance %>%
+  mutate(Rank=paste('#',dense_rank(desc(Importance))))
+ggplot(rank_importance,aes(x=reorder(Variables,Importance),
+ y=Importance,fill=Importance))+ 
+ geom_bar(stat='identity') + 
+ geom_text(aes(x = Variables, y = 0.5, label = Rank),
+ hjust=0, vjust=0.55, size = 4, colour = 'white') +
+ labs(x = 'Variables') +
+ coord_flip() 
+
+importance = importance(merged.rf)
+var_importance = data.frame(Variables = row.names(importance),
+                           Importance =round(importance[, 'MeanDecreaseGini'],2))
+rank_importance=var_importance %>%
+  mutate(Rank=paste('#',dense_rank(desc(Importance))))
+ggplot(rank_importance,aes(x=reorder(Variables,Importance),
+ y=Importance,fill=Importance))+ 
+ geom_bar(stat='identity') + 
+ geom_text(aes(x = Variables, y = 0.5, label = Rank),
+ hjust=0, vjust=0.55, size = 4, colour = 'white') +
+ labs(x = 'Variables') +
+ coord_flip() 
+```
+
+```{r}
+cm <- confusionMatrix(factor(pred), factor(test$LA1and10), dnn = c("Prediction", "Reference"))
+
+plt <- as.data.frame(cm$table)
+plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+
+ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq)) +
+        scale_fill_gradient(low="white", high="#009194") +
+        labs(x = "Reference",y = "Prediction") +
+        scale_x_discrete(labels=c("Class_1","Class_2")) +
+        scale_y_discrete(labels=c("Class_2","Class_1"))
+```
+
+```{r}
+x <- merged %>% subset( LA1and10 >= 0.33,
+  select = c(GROCPTH16)
+)
+y <- merged %>% subset( LA1and10 < 0.33,
+  select = c(GROCPTH16)
+)
+
+t.test(x,y)
+```

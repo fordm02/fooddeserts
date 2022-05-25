@@ -1,0 +1,82 @@
+---
+title: "Project EDA"
+output: html_notebook
+---
+
+
+##Access Atlas##
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+access_atlas <- read_csv("FoodAccessResearchAtlasData2019.csv")
+```
+```{r}
+hist(access_atlas$PovertyRate)
+hist(as.numeric(access_atlas$MedianFamilyIncome))
+hist(access_atlas$Urban)
+hist(as.numeric(access_atlas$lapop10share))
+
+access_atlas_alabama <- access_atlas %>% 
+  filter(State == "New York", as.numeric(lapop1share) >= 25)
+
+access_atlas_alabama <- access_atlas_alabama %>% 
+  mutate(lapop1share = ifelse(lapop1share == "NULL", NA, trunc(as.numeric(lapop1share))))
+
+access_atlas_alabama <- na.omit(access_atlas_alabama)
+
+p <- ggplot(access_atlas_alabama, aes(x = lapop1share, y = PovertyRate, color = Urban)) + geom_point(show.legend = TRUE) + ggtitle("Share of population beyond 1 mile from supermarket vs Poverty Rate (New York) 
+")
+p
+```
+##Food Environment Atlas##
+```{r}
+stores <- read.csv("FoodEnvironmentAtlas-Stores.csv")
+restaurants <- read.csv("FoodEnvironmentAtlas-Restaurants.csv")
+assistance <- read.csv("FoodEnvironmentAtlas-Assistance.csv")
+
+hist(restaurants$FFRPTH16) 
+hist(restaurants$FSRPTH16)
+
+hist(restaurants$FFR16)
+hist(restaurants$FSR16)
+
+hist(stores$GROC16)
+hist(stores$GROCPTH16)
+hist(stores$SUPERC16)
+hist(stores$SUPERCPTH16)
+hist(stores$CONVS16)
+hist(stores$CONVSPTH16)
+hist(stores$SPECS16)
+hist(stores$SPECSPTH16)
+
+```
+```{r}
+
+stores_transformed <- stores %>% subset(
+  select = c(GROCPTH16, SUPERCPTH16, CONVSPTH16, SPECSPTH16) 
+) 
+
+colnames(stores_transformed) <- c("Grocery stores", "Supercenters and club stores", "Convenience stores", "Specialized food stores")
+
+stores_transformed <- stores_transformed %>% pivot_longer(
+  cols = c(`Grocery stores`, `Supercenters and club stores`, `Convenience stores`, `Specialized food stores`),
+  names_to = c("Type")
+) %>%
+  subset(value <= 1)
+
+ggplot(data = stores_transformed, 
+       aes(x = value, fill = Type)) + geom_histogram() + ggtitle("Histogram of Types of Store per Thousand People", subtitle = "Excluding values greater than 1")
+
+```
+
+##Food Balance Eastern Europe##
+```{r}
+foodbalance <- readRDS("foodbalance.Rds")
+
+hist(foodbalance$`Population, Total Population - Both sexes`)
+hist(foodbalance$`Grand Total, Food supply`)
+hist(foodbalance$`Vegetables, Food supply`)
+
+boxplot(foodbalance$`Vegetables, Food supply`)
+```

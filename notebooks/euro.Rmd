@@ -1,0 +1,119 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+
+library(dplyr)
+library(janitor)
+
+year <- c(2013, 2014, 2015, 2016)
+grocery <- c(1563,1451,1485,1533)
+conv <- c(12262+2722,11053+2609,10923+2612,10507+2663)
+super <- c(266,152,167,160)
+spec <- c(2678,2702,2749,2841)
+population <- c(45490, 45270, 45150, 45000)
+
+
+ukraine <- data.frame(year, population,grocery,conv,super,spec)
+
+ukraine <- ukraine %>%
+  adorn_totals(name = "mean") %>%
+  mutate(across(where(is.numeric),
+                ~ replace (., n(), .[n()]/(n()-1)))) %>%
+  as_tibble
+
+ukraine_formatted <- ukraine %>%
+  transmute(GROCPTH16 = grocery/population ,
+         SUPERCPTH16 = super/population,
+         CONVSPTH16 = conv/population,
+         SPECSPTH16 = spec/population)
+
+
+```
+
+```{r}
+library(randomForest)
+
+merged <- readRDS("merged_forukraine.Rds")
+
+merged_factors <- merged %>%
+  mutate(LA1and10 = as.factor(if_else(LA1and10 >= 0.33, 1, 0))) %>%
+  subset(select = c(LA1and10, GROCPTH16, SUPERCPTH16, CONVSPTH16, SPECSPTH16))
+
+train <- sample_n(merged_factors, 518)
+test <- sample_n(merged_factors, 222) 
+
+x_test <- test %>% subset(select = -c(LA1and10))
+
+merged.rf <- randomForest(LA1and10~., data = train,
+                            ntree = 50,
+                            importance = TRUE,
+                            proximity = TRUE)
+print(merged.rf)
+plot(merged.rf)
+
+pred <- predict(merged.rf, x_test)
+
+table(pred, test$LA1and10)
+agreement <- pred == test$LA1and10
+prop.table(table(agreement))
+```
+
+```{r}
+pred_ukraine <- predict(merged.rf, ukraine_formatted)
+pred_ukraine
+```
+```{r}
+foodbalance <- readRDS("foodbalance.Rds")
+foodbalance_ukraine <- foodbalance %>% subset(Area == "Ukraine", 
+                                              select = c(`Alcoholic Beverages, Food supply`,
+                                                         `Animal fats, Food supply`,
+                                                         `Animal Products, Food supply`,
+                                                         `Aquatic Products, Other, Food supply`,
+                                                         `Cereals - Excluding Beer, Food supply`,
+                                                         `Eggs, Food supply`,
+                                                         `Fish, Seafood, Food supply`,
+                                                         `Fruits - Excluding Wine, Food supply`,
+                                                         `Meat, Food supply`,
+                                                         `Milk - Excluding Butter, Food supply`,
+                                                         `Miscellaneous, Food supply`,
+                                                         `Offals, Food supply`,
+                                                         `Oilcrops, Food supply`,
+                                                         `Pulses, Food supply`,
+                                                         `Spices, Food supply`,
+                                                         `Starchy Roots, Food supply`,
+                                                         `Stimulants, Food supply`,
+                                                         `Sugar & Sweeteners, Food supply`,
+                                                         `Sugar Crops, Food supply`,
+                                                         `Treenuts, Food supply`,
+                                                         `Vegetable Oils, Food supply`,
+                                                         `Vegetables, Food supply`,
+                                                         `Vegetal Products, Food supply`
+                                                         ))
+```
+
+```{r}
+library(tidyr)
+fb_ukraine_pivot <- pivot_longer(foodbalance_ukraine, cols = everything())
+
+fb_ukraine_pivot$group <- c("misc", "animal protein", "animal protein", "animal protein", "starches", "animal protein", "animal protein", "produce", "animal protein", "animal protein", "misc", "animal protein", "other protein", "other protein", "misc", "starches", "misc", "msic", "misc", "other protein", "misc", "produce", "produce")
+
+fb_ukraine_pivot$group <- as.factor(fb_ukraine_pivot$group)
+
+fb_ukraine_pivot <- fb_ukraine_pivot %>% mutate(
+  name = str_remove(name, ", Food supply"))
+
+
+```
+
+```{r}
+library(ggplot2)
+
+p<-ggplot(data=fb_ukraine_pivot[-23,], aes(name, value, fill = group)) +
+  geom_bar(position = "stack", stat="identity")
+p
+```

@@ -1,0 +1,264 @@
+---
+title: "Comparing Food Deserts and Food Environment"
+output: html_notebook
+---
+
+```{r}
+HRD <- read_csv("HRD-Outcomes_and_Factors_SubRankings.csv")
+HRD <- HRD %>% unite("County", County:State, sep = " County, ", remove = TRUE)
+
+HRD <- HRD %>% 
+  mutate(`Length of Life Rank` = as.numeric(`Length of Life Rank`),
+        `Length of Life Quartile` = as.numeric(`Length of Life Quartile`),
+        `Quality of Life Rank` = as.numeric(`Quality of Life Rank`),
+        `Quality of Life Quartile` = as.numeric(`Quality of Life Quartile`),
+        `Health Behaviors Rank` = as.numeric(`Health Behaviors Rank`),
+        `Health Behaviors Quartile` = as.numeric(`Health Behaviors Quartile`),
+        `Clinical Care Rank` = as.numeric(`Clinical Care Rank`),
+        `Clinical Care Quartile` = as.numeric(`Clinical Care Quartile`),
+        `Social & Economic Factors Rank` = as.numeric(`Social & Economic Factors Rank`),
+        `Social & Economic Factors Quartile` = as.numeric(`Social & Economic Factors Quartile`),
+        `Physical Environment Rank` = as.numeric(`Physical Environment Rank`),
+        `Physical Environment Quartile` = as.numeric(`Physical Environment Quartile`)
+        )
+
+
+
+
+merged_old <- read_rds("merged.Rds")
+merged_old <- subset(merged_old,
+                     select = c(County, LA1and10))
+```
+
+```{r}
+merged <- inner_join(HRD, merged_old) %>% 
+  subset(
+    select = -c(FIPS, `# of Ranked Counties`)
+)
+merged <- na.omit(merged)
+```
+```{r}
+train <- sample_n(merged, 518)
+test <- sample_n(merged, 222)
+
+x_train <- train$LA1and10
+x_test <- test$LA1and10
+y_train <- train$`Length of Life Quartile`
+y_test <- test$`Length of Life Quartile`
+
+```
+
+```{r}
+length_knn <- knn(train = cbind(x_train,y_train),
+                  test = cbind(x_test, y_test),
+                  cl = y_train,
+                  k = 100)
+table(y_test, length_knn)
+error <- mean(y_test != length_knn)
+print(paste("Accuracy = ", 1-error))
+```
+```{r}
+library(caret)
+
+cm <- confusionMatrix(factor(length_knn), factor(y_test), dnn = c("Prediction", "Reference"))
+
+plt <- as.data.frame(cm$table)
+plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+
+ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq)) +
+        scale_fill_gradient(low="white", high="#009194") +
+        labs(x = "Reference",y = "Prediction") +
+        scale_x_discrete(labels=c("Quartile_1","Quartile_2", "Quartile_3", "Quartile_4")) +
+        scale_y_discrete(labels=c("Quartile_4","Quartile_3", "Quartile_2", "Quartile_1"))
+```
+```{r}
+x_train <- train$LA1and10
+x_test <- test$LA1and10
+y_train <- train$`Quality of Life Quartile`
+y_test <- test$`Quality of Life Quartile`
+
+```
+
+```{r}
+length_knn <- knn(train = cbind(x_train,y_train),
+                  test = cbind(x_test, y_test),
+                  cl = y_train,
+                  k = 150)
+table(y_test, length_knn)
+error <- mean(y_test != length_knn)
+print(paste("Accuracy = ", 1-error))
+```
+
+```{r}
+
+cm <- confusionMatrix(factor(length_knn), factor(y_test), dnn = c("Prediction", "Reference"))
+
+plt <- as.data.frame(cm$table)
+plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+
+ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq)) +
+        scale_fill_gradient(low="white", high="#009194") +
+        labs(x = "Reference",y = "Prediction") +
+        scale_x_discrete(labels=c("Quartile_1","Quartile_2", "Quartile_3", "Quartile_4")) +
+        scale_y_discrete(labels=c("Quartile_4","Quartile_3", "Quartile_2", "Quartile_1"))
+```
+
+```{r}
+library(stringr)
+
+state_dict <- data.frame(state.name, state.abb)
+colnames(state_dict) <- list("Long", "State")
+
+
+RMD <- read_csv("HRD - Ranked_Measure_Data.csv")
+RMD <- RMD %>% unite("County", County:State, sep = " County, ", remove = TRUE)
+
+obesity <- subset(RMD,
+                  select = c(County, `% Adults with Obesity`
+                             )) 
+colnames(obesity) <- c("County", "Obesity_share")
+
+diabetes <- read_csv("diabetes_prevelance.csv")
+diabetes <- inner_join(diabetes, state_dict)
+diabetes <- diabetes[,c("County", "Long", "County diagnosed diabetes prevalence for total population, 30+yrs, 2008 (%)")]
+diabetes <- diabetes %>% unite("County", County:Long, sep = " County, ", remove = TRUE)
+diabetes <- diabetes %>% subset(select = c(County, `County diagnosed diabetes prevalence for total population, 30+yrs, 2008 (%)`))
+colnames(diabetes) <- c("County", "Diabetes_share")
+diabetes$Diabetes_share <- as.numeric(diabetes$Diabetes_share)
+
+
+cvd <- read_csv("CVD_MR.csv")
+#cvd <- cvd %>% separate(Location, c("County", "Long"), ", ")
+#cvd <- inner_join(cvd, state_dict)
+#cvd <- cvd[,c("County", "Long", "Mortality Rate, 2014*")]
+#cvd <- cvd %>% unite("County", County:Long, sep = " County, ", remove = TRUE)
+colnames(cvd) <- c("County", "CVD_MortalityRate")
+cvd$CVD_MortalityRate <- str_replace(cvd$CVD_MortalityRate, " \\s*\\([^\\)]+\\)", "")
+cvd$CVD_MortalityRate <- as.numeric(cvd$CVD_MortalityRate)
+
+
+cancer <- read_csv("cancer_MR.csv")
+colnames(cancer) <- c("County", "UterineCancer_MortalityRate", "BreastCancer_MortalityRate", "ColonCancer_MortalityRate")
+cancer$UterineCancer_MortalityRate <- str_replace(cancer$UterineCancer_MortalityRate, " \\s*\\([^\\)]+\\)", "")
+cancer$UterineCancer_MortalityRate <- as.numeric(cancer$UterineCancer_MortalityRate)
+cancer$BreastCancer_MortalityRate <- str_replace(cancer$BreastCancer_MortalityRate, " \\s*\\([^\\)]+\\)", "")
+cancer$BreastCancer_MortalityRate <- as.numeric(cancer$BreastCancer_MortalityRate)
+cancer$ColonCancer_MortalityRate <- str_replace(cancer$ColonCancer_MortalityRate, " \\s*\\([^\\)]+\\)", "")
+cancer$ColonCancer_MortalityRate <- as.numeric(cancer$ColonCancer_MortalityRate)
+```
+
+```{r}
+diseases <- inner_join(obesity,diabetes)
+diseases <- inner_join(diseases, cvd)
+diseases <- inner_join(diseases, cancer)
+```
+
+```{r}
+merged <- inner_join(merged_old, diseases)
+```
+
+```{r}
+library(randomForest)
+
+merged_factors <- merged %>%
+  mutate(LA1and10 = as.factor(if_else(LA1and10 >= 0.33, 1, 0)))
+
+train <- sample_n(merged_factors, 518) %>% subset(select = -c(County))
+test <- sample_n(merged_factors, 222) %>% subset(select = -c(County))
+
+x_test <- test %>% subset(select = -c(LA1and10))
+
+merged.rf <- randomForest(LA1and10~., data = train,
+                            ntree = 50,
+                            importance = TRUE,
+                            proximity = TRUE)
+print(merged.rf)
+plot(merged.rf)
+
+pred <- predict(merged.rf, x_test)
+
+table(pred, test$LA1and10)
+agreement <- pred == test$LA1and10
+prop.table(table(agreement))
+
+importance = importance(merged.rf)
+var_importance = data.frame(Variables = row.names(importance),
+                           Importance =round(importance[, 'MeanDecreaseAccuracy'],2))
+rank_importance=var_importance %>%
+  mutate(Rank=paste('#',dense_rank(desc(Importance))))
+ggplot(rank_importance,aes(x=reorder(Variables,Importance),
+ y=Importance,fill=Importance))+ 
+ geom_bar(stat='identity') + 
+ geom_text(aes(x = Variables, y = 0.5, label = Rank),
+ hjust=0, vjust=0.55, size = 4, colour = 'white') +
+ labs(x = 'Variables') +
+ coord_flip() 
+
+importance = importance(merged.rf)
+var_importance = data.frame(Variables = row.names(importance),
+                           Importance =round(importance[, 'MeanDecreaseGini'],2))
+rank_importance=var_importance %>%
+  mutate(Rank=paste('#',dense_rank(desc(Importance))))
+ggplot(rank_importance,aes(x=reorder(Variables,Importance),
+ y=Importance,fill=Importance))+ 
+ geom_bar(stat='identity') + 
+ geom_text(aes(x = Variables, y = 0.5, label = Rank),
+ hjust=0, vjust=0.55, size = 4, colour = 'white') +
+ labs(x = 'Variables') +
+ coord_flip() 
+```
+
+```{r}
+cm <- confusionMatrix(factor(pred), factor(test$LA1and10), dnn = c("Prediction", "Reference"))
+
+plt <- as.data.frame(cm$table)
+plt$Prediction <- factor(plt$Prediction, levels=rev(levels(plt$Prediction)))
+
+ggplot(plt, aes(Prediction,Reference, fill= Freq)) +
+        geom_tile() + geom_text(aes(label=Freq)) +
+        scale_fill_gradient(low="white", high="#009194") +
+        labs(x = "Reference",y = "Prediction") +
+        scale_x_discrete(labels=c("Class_1","Class_2")) +
+        scale_y_discrete(labels=c("Class_2","Class_1"))
+```
+
+```{r}
+
+x <- merged %>% subset( LA1and10 >= 0.33,
+  select = c(Obesity_share)
+)
+y <- merged %>% subset( LA1and10 < 0.33,
+  select = c(Obesity_share)
+)
+
+t.test(x,y)
+
+```
+```{r}
+
+x <- merged %>% subset( LA1and10 >= 0.33,
+  select = c(Diabetes_share)
+)
+y <- merged %>% subset( LA1and10 < 0.33,
+  select = c(Diabetes_share)
+)
+
+t.test(x,y)
+
+```
+
+```{r}
+
+x <- merged %>% subset( LA1and10 >= 0.33,
+  select = c(CVD_MortalityRate)
+)
+y <- merged %>% subset( LA1and10 < 0.33,
+  select = c(CVD_MortalityRate)
+)
+
+t.test(x,y)
+
+```
+
